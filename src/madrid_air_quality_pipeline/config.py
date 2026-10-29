@@ -17,3 +17,14 @@ STATIONS_URL = (
     "resource/212629-0-estaciones-control-aire-csv/download/"
     "212629-0-estaciones-control-aire-csv.csv"
 )
+
+# First year of data to load (decision 006). Can be overridden from the environment.
+START_YEAR = int(os.environ.get("START_YEAR", "2024"))
+
+# CKAN metadata API, used to discover download URLs (decision: discovery over hardcoding)
+CKAN_PACKAGE_SHOW_URL = "https://datos.madrid.es/api/3/action/package_show"
+AIR_QUALITY_HISTORICAL_PACKAGE = "201200-0-calidad-aire-horario"
+AIR_QUALITY_REALTIME_PACKAGE = "212531-0-calidad-aire-tiempo-real"
+
+# Timezone in which the source publishes its data
+SOURCE_TIMEZONE = "Europe/Madrid"

@@ -28,23 +28,31 @@ def fetch(url: str, retries: int = 3, timeout: int = 60) -> requests.Response:
     raise RuntimeError("Unreachable")
 
 
-def download_file(url: str, destination: Path, expected_header: str | None = None) -> Path:
-    """Download a file and save it atomically, optionally validating its first line."""
-    response = fetch(url)
-    content = response.content
+def validate_header(content: bytes, expected_header: str, source: str) -> None:
+    """Fail loudly if the first line does not start with the expected header."""
+    lines = content[:2000].decode("utf-8-sig", errors="replace").splitlines()
+    first_line = lines[0] if lines else ""
+    normalized = first_line.replace('"', "")
+    if not normalized.startswith(expected_header):
+        raise ValueError(
+            f"Unexpected content from {source}. "
+            f"Expected header starting with {expected_header!r}, got {first_line[:100]!r}"
+        )
 
-    if expected_header is not None:
-        first_line = content[:2000].decode("utf-8-sig", errors="replace").splitlines()[0]
-        if not first_line.startswith(expected_header):
-            raise ValueError(
-                f"Unexpected content from {url}. "
-                f"Expected header starting with {expected_header!r}, got {first_line[:100]!r}"
-            )
 
+def write_atomic(destination: Path, content: bytes) -> None:
+    """Write bytes to a temporary file and rename it, so readers never see a partial file."""
     destination.parent.mkdir(parents=True, exist_ok=True)
     temporary = destination.with_suffix(destination.suffix + ".tmp")
     temporary.write_bytes(content)
     temporary.replace(destination)
 
+
+def download_file(url: str, destination: Path, expected_header: str | None = None) -> Path:
+    """Download a file, optionally validate its header, and save it atomically."""
+    content = fetch(url).content
+    if expected_header is not None:
+        validate_header(content, expected_header, source=url)
+    write_atomic(destination, content)
     logger.info("Downloaded %s (%d bytes)", destination, len(content))
     return destination
