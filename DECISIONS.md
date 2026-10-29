@@ -127,3 +127,70 @@ This document records the key technical decisions made in this project, the alte
 - A data test will assert that only `V` and `N` exist, so any new flag fails loudly.
 
 **Trade-offs:** The interpretation relies on observation rather than official documentation.
+
+---
+
+## 010 · Resource discovery through CKAN metadata
+
+**Decision:** Discover download URLs at runtime with the CKAN `package_show` API instead of hardcoding them.
+
+**Reasoning:**
+- The portal reorganised its resources during development: a yearly URL found early on stopped existing.
+- Resources are identified by their `hierarchy_name` field ("2024", "Desde 2025"), parsed with a regular expression. Resource IDs do not follow year order.
+- The extraction fails loudly if a required year is missing or no open period is found.
+
+**Trade-offs:** Depends on the CKAN metadata schema, which could also change (but would fail loudly).
+
+---
+
+## 011 · Raw layer: original files on disk, Hive-style partitions
+
+**Decision:** Store source files untouched under `data/raw/`, partitioned as `key=value` folders. From yearly ZIPs, only the monthly CSV files are extracted.
+
+**Reasoning:**
+- Raw data is the source of truth: any transformation can be rebuilt without downloading again.
+- Extracting a CSV from a ZIP does not change its bytes; the ZIP is just packaging. TXT and XML copies add nothing.
+- Only the file name of each ZIP member is kept, which also prevents "zip slip" path traversal.
+- DuckDB reads Hive-style partitions natively.
+
+**Trade-offs:** Local disk instead of object storage (S3/GCS), which would be the production equivalent.
+
+---
+
+## 012 · Idempotent, incremental extraction
+
+**Decision:** Every extraction can be re-run safely. Files are written atomically (temporary file + rename). Unchanged data is not downloaded again.
+
+**Reasoning:**
+- Closed years are downloaded once. The open air quality period is downloaded again only when the CKAN file hash changes (stored in a `_fingerprint.txt` marker, written last).
+- A past weather year is skipped only if its file reaches December 31 at 23:00, so the last days of a year are never lost.
+- Verified in practice: after a run failed with HTTP 429 errors, re-running resumed exactly where it stopped.
+
+**Trade-offs:** More logic than a naive "download everything every time".
+
+---
+
+## 013 · Weather: Open-Meteo archive, up to yesterday
+
+**Decision:** One request per station and year, in UTC (`timezone=GMT`), with seven variables: temperature, relative humidity, precipitation, wind speed, wind direction, shortwave radiation and boundary layer height. Data is requested only up to yesterday (Madrid time).
+
+**Reasoning:**
+- Variables chosen for their known effect on pollution (dispersion, washout, ozone formation, thermal inversions).
+- Exploration showed the archive endpoint returns values even for hours that have not happened yet, which can only be forecasts. Limiting to yesterday ensures no unobserved hours are stored.
+- The current year is downloaded again on every run, so provisional recent values get revised automatically.
+- Parallel arrays are validated to have equal length, because `zip()` silently truncates.
+
+**Trade-offs:** Recent days are model data that may still be revised. Today's air quality has no weather match until tomorrow.
+
+---
+
+## 014 · HTTP retries only for transient errors
+
+**Decision:** Retry network errors, HTTP 429 and 5xx. Fail immediately on other 4xx errors. On 429, honour the `Retry-After` header or wait 60 seconds.
+
+**Reasoning:**
+- Errors like 404 are not fixed by retrying; failing fast reports them sooner.
+- The first weather run hit the API rate limit; short exponential backoff was not enough.
+- Every request has a timeout, so a silent server can never hang the pipeline.
+
+**Trade-offs:** Long waits on rate limits slow down the first full extraction.
