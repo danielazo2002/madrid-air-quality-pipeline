@@ -9,20 +9,32 @@ import requests
 logger = logging.getLogger(__name__)
 
 
-def fetch(url: str, retries: int = 3, timeout: int = 60) -> requests.Response:
-    """GET a URL, retrying on failure with exponential backoff."""
+RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
+RATE_LIMIT_WAIT_SECONDS = 60
+
+
+def fetch(url: str, params: dict | None = None, retries: int = 4, timeout: int = 60) -> requests.Response:
+    """GET a URL, retrying only transient failures (rate limits, server and network errors)."""
     for attempt in range(1, retries + 1):
         try:
-            response = requests.get(url, timeout=timeout)
+            response = requests.get(url, params=params, timeout=timeout)
             response.raise_for_status()
             return response
         except requests.RequestException as error:
-            if attempt == retries:
+            status = error.response.status_code if error.response is not None else None
+            is_retryable = status is None or status in RETRYABLE_STATUS_CODES
+            if not is_retryable or attempt == retries:
                 raise
-            wait_seconds = 2**attempt
+
+            if status == 429:
+                retry_after = error.response.headers.get("Retry-After", "")
+                wait_seconds = int(retry_after) if retry_after.isdigit() else RATE_LIMIT_WAIT_SECONDS
+            else:
+                wait_seconds = 2**attempt
+
             logger.warning(
-                "Attempt %d/%d failed for %s: %s. Retrying in %ds",
-                attempt, retries, url, error, wait_seconds,
+                "Attempt %d/%d failed for %s (status %s). Retrying in %ds",
+                attempt, retries, url, status, wait_seconds,
             )
             time.sleep(wait_seconds)
     raise RuntimeError("Unreachable")

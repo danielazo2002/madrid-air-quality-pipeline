@@ -28,3 +28,15 @@ AIR_QUALITY_REALTIME_PACKAGE = "212531-0-calidad-aire-tiempo-real"
 
 # Timezone in which the source publishes its data
 SOURCE_TIMEZONE = "Europe/Madrid"
+
+# Open-Meteo historical weather API (decision F: variables chosen for their effect on pollution)
+OPEN_METEO_ARCHIVE_URL = "https://archive-api.open-meteo.com/v1/archive"
+WEATHER_VARIABLES = [
+    "temperature_2m",
+    "relative_humidity_2m",
+    "precipitation",
+    "wind_speed_10m",
+    "wind_direction_10m",
+    "shortwave_radiation",
+    "boundary_layer_height",
+]
