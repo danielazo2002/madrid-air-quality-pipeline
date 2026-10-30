@@ -194,3 +194,26 @@ This document records the key technical decisions made in this project, the alte
 - Every request has a timeout, so a silent server can never hang the pipeline.
 
 **Trade-offs:** Long waits on rate limits slow down the first full extraction.
+
+---
+
+## 018 · Air quality staging: unpivot, DST handling and source precedence
+
+**Decision:** Unpivot the 24 hourly value/flag pairs into one row per station, pollutant and hour. Convert local time to UTC from the period start. Drop local hours that do not exist. When sources overlap, keep the valid row first, then historical over real-time.
+
+**Reasoning:**
+- Non-existent local times (the hour skipped in March) are detected with a round trip (local → UTC → local) instead of relying on how the time zone library resolves the gap.
+- In October the repeated local hour appears only once in the source, so one UTC hour has no data. It is left as a gap, never imputed (decision 009).
+- Placeholder rows (`0` flagged `N`) must never hide a valid value from the other source, so validity ranks above source precedence.
+
+**Trade-offs:** The repeated October hour is assigned to one of its two possible UTC instants by the time zone library.
+
+---
+
+## 019 · dbt_utils package
+
+**Decision:** Use `dbt-labs/dbt_utils` for multi-column uniqueness tests.
+
+**Reasoning:** It is the de facto standard dbt package, maintained by dbt Labs. Writing the same test by hand would add code without adding value.
+
+**Trade-offs:** One external dependency, pinned in `package-lock.yml`.

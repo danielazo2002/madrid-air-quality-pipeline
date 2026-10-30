@@ -1,0 +1,19 @@
+name: madrid_air_quality
+version: "1.0.0"
+profile: madrid_air_quality
+
+model-paths: ["models"]
+clean-targets: ["target", "dbt_packages"]
+
+models:
+  madrid_air_quality:
+    staging:
+      +materialized: view
+    marts:
+      +materialized: table
+
+seeds:
+  madrid_air_quality:
+    pollutants:
+      +column_types:
+        pollutant_code: varchar

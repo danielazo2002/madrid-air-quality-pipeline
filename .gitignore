@@ -11,3 +11,8 @@ wheels/
 
 # Local data (raw files and DuckDB database)
 data/
+
+# dbt
+dbt/target/
+dbt/logs/
+dbt/dbt_packages/

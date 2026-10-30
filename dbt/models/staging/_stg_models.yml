@@ -1,0 +1,63 @@
+models:
+  - name: stg_stations
+    description: One row per air quality station, typed and renamed.
+    columns:
+      - name: station_id
+        description: 3-digit station code, join key with air quality data.
+        data_tests: [unique, not_null]
+      - name: station_code
+        description: 8-digit official code, join key with weather data.
+        data_tests: [unique, not_null]
+      - name: latitude
+        data_tests: [not_null]
+      - name: longitude
+        data_tests: [not_null]
+
+  - name: stg_air_quality
+    description: One row per station, pollutant and hour (UTC, period ending).
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [station_id, pollutant_code, measured_at_utc]
+    columns:
+      - name: station_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_stations')
+                field: station_id
+      - name: pollutant_code
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('pollutants')
+                field: pollutant_code
+      - name: measured_at_utc
+        data_tests: [not_null]
+      - name: validation_flag
+        description: Only 'V' is valid (official file documentation). Any other code is loaded as NULL.
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ["V", "N", "M"]
+              config:
+                severity: warn
+
+  - name: stg_weather
+    description: One row per station and hour (UTC) from the Open-Meteo archive.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [station_code, measured_at_utc]
+    columns:
+      - name: station_code
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_stations')
+                field: station_code
+      - name: measured_at_utc
+        data_tests: [not_null]

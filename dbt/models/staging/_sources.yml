@@ -1,0 +1,23 @@
+sources:
+  - name: raw
+    description: Untouched files written by the extraction layer (data/raw).
+    tables:
+      - name: stations
+        description: Air quality station catalogue (one row per station).
+        config:
+          external_location: "read_csv('{{ env_var('DATA_DIR', '../data') }}/raw/stations/stations.csv', delim=';', header=true, all_varchar=true)"
+
+      - name: air_quality_historical
+        description: Hourly air quality, wide format. Closed periods.
+        config:
+          external_location: "read_csv('{{ env_var('DATA_DIR', '../data') }}/raw/air_quality/historical/*/*.csv', delim=';', header=true, all_varchar=true, union_by_name=true, hive_partitioning=true, hive_types_autocast=false)"
+
+      - name: air_quality_realtime
+        description: Hourly air quality, wide format. Current day only.
+        config:
+          external_location: "read_csv('{{ env_var('DATA_DIR', '../data') }}/raw/air_quality/realtime/*/*.csv', delim=';', header=true, all_varchar=true, union_by_name=true, hive_partitioning=true, hive_types_autocast=false)"
+
+      - name: weather
+        description: Open-Meteo hourly archive, one JSON document per station and year.
+        config:
+          external_location: "read_json('{{ env_var('DATA_DIR', '../data') }}/raw/weather/*/*/weather.json', hive_partitioning=true, hive_types_autocast=false)"

@@ -1,0 +1,19 @@
+pollutant_code,pollutant_symbol,pollutant_name,unit
+01,SO2,Sulphur dioxide,µg/m³
+06,CO,Carbon monoxide,mg/m³
+07,NO,Nitrogen monoxide,µg/m³
+08,NO2,Nitrogen dioxide,µg/m³
+09,PM2.5,Particulate matter < 2.5 µm,µg/m³
+10,PM10,Particulate matter < 10 µm,µg/m³
+12,NOx,Nitrogen oxides,µg/m³
+14,O3,Ozone,µg/m³
+20,TOL,Toluene,µg/m³
+30,BEN,Benzene,µg/m³
+35,EBE,Ethylbenzene,µg/m³
+37,MXY,Meta-xylene,µg/m³
+38,PXY,Para-xylene,µg/m³
+39,OXY,Ortho-xylene,µg/m³
+42,TCH,Total hydrocarbons,mg/m³
+43,CH4,Methane,mg/m³
+44,NMHC,Non-methane hydrocarbons,mg/m³
+431,MPX,Meta-para-xylene,mg/m³
