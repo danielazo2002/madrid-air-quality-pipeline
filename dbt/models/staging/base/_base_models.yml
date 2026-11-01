@@ -1,0 +1,6 @@
+models:
+  - name: base_air_quality
+    description: >
+      Raw air quality files (historical and real-time) unpivoted to one row per station,
+      pollutant, local date and hour. Local time, duplicates between sources not yet resolved.
+      Feeds stg_air_quality.

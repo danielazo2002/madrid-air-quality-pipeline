@@ -1,0 +1,75 @@
+unit_tests:
+
+  - name: test_spring_dst_change_drops_the_non_existent_hour
+    description: >
+      On 2024-03-31 clocks jump from 02:00 to 03:00 in Madrid. H03 (02:00-03:00 local) never
+      happened, so it is dropped; the hours around it map to consecutive UTC hours.
+    model: stg_air_quality
+    given:
+      - input: ref('base_air_quality')
+        rows:
+          - {station_id: "004", pollutant_code: "08", measurement_date_local: "2024-03-31", hour_ending_local: 2, validation_flag: "V", value: 11, source_partition: historical/2024, source_priority: 1}
+          - {station_id: "004", pollutant_code: "08", measurement_date_local: "2024-03-31", hour_ending_local: 3, validation_flag: "N", value: null, source_partition: historical/2024, source_priority: 1}
+          - {station_id: "004", pollutant_code: "08", measurement_date_local: "2024-03-31", hour_ending_local: 4, validation_flag: "V", value: 8, source_partition: historical/2024, source_priority: 1}
+    expect:
+      rows:
+        - {hour_ending_local: 2, measured_at_utc: "2024-03-31 01:00:00", value: 11}
+        - {hour_ending_local: 4, measured_at_utc: "2024-03-31 02:00:00", value: 8}
+
+  - name: test_autumn_dst_change_maps_the_repeated_hour_once
+    description: >
+      On 2024-10-27 the hour 02:00-03:00 local happens twice but the source has a single H03.
+      DuckDB assigns it to the later instant (standard time), leaving a gap at 01:00 UTC.
+      Pins the behaviour verified on real data (decision 018), so a library change is detected.
+    model: stg_air_quality
+    given:
+      - input: ref('base_air_quality')
+        rows:
+          - {station_id: "004", pollutant_code: "08", measurement_date_local: "2024-10-27", hour_ending_local: 2, validation_flag: "V", value: 19, source_partition: historical/2024, source_priority: 1}
+          - {station_id: "004", pollutant_code: "08", measurement_date_local: "2024-10-27", hour_ending_local: 3, validation_flag: "V", value: 23, source_partition: historical/2024, source_priority: 1}
+          - {station_id: "004", pollutant_code: "08", measurement_date_local: "2024-10-27", hour_ending_local: 4, validation_flag: "V", value: 8, source_partition: historical/2024, source_priority: 1}
+    expect:
+      rows:
+        - {hour_ending_local: 2, measured_at_utc: "2024-10-27 00:00:00"}
+        - {hour_ending_local: 3, measured_at_utc: "2024-10-27 02:00:00"}
+        - {hour_ending_local: 4, measured_at_utc: "2024-10-27 03:00:00"}
+
+  - name: test_period_ending_convention_in_winter_and_summer
+    description: >
+      Hnn is labelled with the end of its hour (decision 008): H24 ends at local midnight.
+      Madrid is UTC+1 in winter and UTC+2 in summer.
+    model: stg_air_quality
+    given:
+      - input: ref('base_air_quality')
+        rows:
+          - {station_id: "004", pollutant_code: "08", measurement_date_local: "2024-01-15", hour_ending_local: 24, validation_flag: "V", value: 30, source_partition: historical/2024, source_priority: 1}
+          - {station_id: "004", pollutant_code: "08", measurement_date_local: "2024-07-15", hour_ending_local: 1, validation_flag: "V", value: 20, source_partition: historical/2024, source_priority: 1}
+          - {station_id: "004", pollutant_code: "08", measurement_date_local: "2024-07-15", hour_ending_local: 24, validation_flag: "V", value: 25, source_partition: historical/2024, source_priority: 1}
+    expect:
+      rows:
+        - {measurement_date_local: "2024-01-15", hour_ending_local: 24, measured_at_utc: "2024-01-15 23:00:00"}
+        - {measurement_date_local: "2024-07-15", hour_ending_local: 1, measured_at_utc: "2024-07-14 23:00:00"}
+        - {measurement_date_local: "2024-07-15", hour_ending_local: 24, measured_at_utc: "2024-07-15 22:00:00"}
+
+  - name: test_source_precedence_prefers_valid_then_historical
+    description: >
+      When historical and real-time rows overlap, a valid row always wins; between rows of equal
+      validity, historical wins (decision 018).
+    model: stg_air_quality
+    given:
+      - input: ref('base_air_quality')
+        rows:
+          # Hour ending 10:00 local (09:00 UTC) - historical placeholder (N) vs real-time valid: real-time wins
+          - {station_id: "004", pollutant_code: "08", measurement_date_local: "2024-01-15", hour_ending_local: 10, validation_flag: "N", value: null, source_partition: historical/2024, source_priority: 1}
+          - {station_id: "004", pollutant_code: "08", measurement_date_local: "2024-01-15", hour_ending_local: 10, validation_flag: "V", value: 25, source_partition: realtime/2024-01-15, source_priority: 2}
+          # Hour ending 11:00 local - both valid: historical (reviewed) wins
+          - {station_id: "004", pollutant_code: "08", measurement_date_local: "2024-01-15", hour_ending_local: 11, validation_flag: "V", value: 30, source_partition: historical/2024, source_priority: 1}
+          - {station_id: "004", pollutant_code: "08", measurement_date_local: "2024-01-15", hour_ending_local: 11, validation_flag: "V", value: 31, source_partition: realtime/2024-01-15, source_priority: 2}
+          # Hour ending 12:00 local - both not valid: historical wins, value stays NULL
+          - {station_id: "004", pollutant_code: "08", measurement_date_local: "2024-01-15", hour_ending_local: 12, validation_flag: "N", value: null, source_partition: historical/2024, source_priority: 1}
+          - {station_id: "004", pollutant_code: "08", measurement_date_local: "2024-01-15", hour_ending_local: 12, validation_flag: "N", value: null, source_partition: realtime/2024-01-15, source_priority: 2}
+    expect:
+      rows:
+        - {measured_at_utc: "2024-01-15 09:00:00", validation_flag: "V", value: 25, source_partition: realtime/2024-01-15}
+        - {measured_at_utc: "2024-01-15 10:00:00", validation_flag: "V", value: 30, source_partition: historical/2024}
+        - {measured_at_utc: "2024-01-15 11:00:00", validation_flag: "N", value: null, source_partition: historical/2024}

@@ -217,3 +217,32 @@ This document records the key technical decisions made in this project, the alte
 **Reasoning:** It is the de facto standard dbt package, maintained by dbt Labs. Writing the same test by hand would add code without adding value.
 
 **Trade-offs:** One external dependency, pinned in `package-lock.yml`.
+
+---
+
+## 023 · Python tests: pytest with monkeypatch, no network
+
+**Decision:** Test the extraction code with pytest. HTTP is replaced with pytest's `monkeypatch`; tests never reach the network or the real `data/` directory.
+
+**Alternatives considered:** The `responses` and `requests-mock` libraries.
+
+**Reasoning:**
+- `requests.get` is called from a single function (`fetch`); everything else calls `fetch`. Replacing those two entry points is enough.
+- Fakes return real `requests.Response` objects, so `raise_for_status()` behaves exactly as in production.
+- `time.sleep` is replaced with a recorder: retry tests run instantly and assert the exact waits.
+- No extra dependency.
+
+**Trade-offs:** Mocking happens above the transport layer, so low-level networking details (sessions, adapters) are not exercised.
+
+---
+
+## 024 · Base model for air quality, to unit test time zone logic
+
+**Decision:** Split the air quality model: `base_air_quality` reshapes the raw files (union, unpivot, typing); `stg_air_quality` applies UTC conversion, DST handling and source precedence. dbt unit tests cover the second one.
+
+**Reasoning:**
+- dbt unit tests need input relations with known columns. Mocking a `read_csv()` source with 57 wide columns would be fragile and unreadable.
+- The riskiest logic (DST edge cases, precedence) is now tested with a few explicit rows, independent of real data.
+- The autumn DST test pins the time zone library behaviour verified on real data, acting as a regression test.
+
+**Trade-offs:** One more model in the DAG.
