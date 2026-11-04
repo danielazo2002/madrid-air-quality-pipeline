@@ -402,7 +402,7 @@ This document records the key technical decisions made in this project, the alte
 - `uv sync --locked` fails if `uv.lock` is out of date, so CI tests the exact locked versions.
 - Least privilege: the workflow can only read the repository. Third-party actions are pinned to full versions.
 
-**Trade-offs:** The Docker job takes several minutes. The DAG import check runs without Airflow's metadata database, so it validates parsing, not scheduling.
+**Trade-offs:** The Docker job takes several minutes. The DAG import check runs against a throwaway SQLite metadata database (Cosmos caches `dbt ls` in an Airflow Variable), so it validates parsing, not scheduling.
 
 ---
 

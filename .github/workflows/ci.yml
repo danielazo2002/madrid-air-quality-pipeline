@@ -77,10 +77,12 @@ jobs:
         run: docker build --tag madrid-air-quality-airflow:ci .
       - name: Import the DAG inside the image
         # Fails if the DAG cannot be parsed: import errors, Cosmos configuration, dbt ls.
+        # Cosmos caches the dbt ls result in an Airflow Variable, so the DAG needs a metadata
+        # database: a throwaway SQLite one is migrated inside the container first.
         run: |
           docker run --rm \
             --volume "$PWD/airflow/dags:/opt/airflow/dags:ro" \
             --env DATA_DIR=/tmp/data \
             --env CONNECTION_CHECK_MAX_COUNT=0 \
             madrid-air-quality-airflow:ci \
-            python /opt/airflow/dags/madrid_air_quality.py
+            bash -c "airflow db migrate && python /opt/airflow/dags/madrid_air_quality.py"
