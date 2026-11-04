@@ -119,14 +119,14 @@ This document records the key technical decisions made in this project, the alte
 
 ## 009 · Data validity and missing values
 
-**Decision:** Only values flagged `V` are considered valid. Values flagged `N` are loaded as NULL. Missing values are never imputed.
+**Decision:** Only values flagged `V` are valid. Any other flag (`N`, `M`, or unknown codes) is loaded as NULL. Missing values are never imputed.
 
 **Reasoning:**
-- The source documentation does not define the validation flags. The interpretation is inferred from the data: hours that had not occurred yet appeared as `0` with flag `N`.
-- Loading those zeros as real values would silently bias averages downwards.
-- A data test will assert that only `V` and `N` exist, so any new flag fails loudly.
+- The official file documentation states that only data with code `V` is valid. Other codes are not described individually.
+- Placeholder zeros (hours not yet measured appear as `0` flagged `N`) would silently bias averages downwards if loaded as values.
+- A data test lists the known flags (`V`, `N`, `M`). Unknown flags raise a warning, not an error: they are already handled safely as NULL, so the pipeline keeps running while the change is reported.
 
-**Trade-offs:** The interpretation relies on observation rather than official documentation.
+**Trade-offs:** The meaning of each non-valid code is unknown; they are all treated the same way.
 
 ---
 
@@ -197,6 +197,52 @@ This document records the key technical decisions made in this project, the alte
 
 ---
 
+## 015 · Transformation engine: dbt Core 1.x + dbt-duckdb
+
+**Decision:** Use dbt Core 1.12 with the `dbt-duckdb` Python adapter (1.11.x), installed with uv and pinned below version 2.
+
+**Alternatives considered:** dbt v2 (Rust-based Fusion engine, released September 2026), which ships a built-in DuckDB adapter.
+
+**Reasoning:**
+- The DuckDB adapter for dbt v2 is in beta and does not yet support every feature of `dbt-duckdb`.
+- dbt v2 documentation warns that models reading local files with `read_csv()` or `read_json()` may produce type warnings or compile errors. The whole raw layer of this project is local CSV and JSON files.
+- dbt v2 is a binary, not a Python package, so it cannot be locked with uv. Its documented Airflow (Cosmos) integration targets cloud warehouses, not DuckDB.
+- Models, `ref()`, `source()` and tests are the same in both versions, so a later migration means changing the installation, not rewriting the project.
+
+**Trade-offs:** The 1.12 line receives maintenance fixes only (until July 2027). The project does not use the newest dbt engine.
+
+---
+
+## 016 · Raw layer access: dbt-duckdb external sources
+
+**Decision:** Declare raw files as dbt sources with `external_location`, read directly by DuckDB (`read_csv` / `read_json`) at run time. No separate load step.
+
+**Alternatives considered:** A Python script loading raw files into DuckDB tables before dbt runs.
+
+**Reasoning:**
+- Raw files stay the single source of truth (decision 011); dbt always reads the latest files.
+- One less component to maintain and orchestrate.
+- Explicit reader options (`delim=';'`, all columns as text) preserve codes with leading zeros, such as `'079'`.
+
+**Trade-offs:** Files are parsed on every run, which is acceptable at this data volume. Reader options containing braces require `formatter: oldstyle` on the source table.
+
+---
+
+## 017 · dbt project location: `dbt/` subfolder with a versioned `profiles.yml`
+
+**Decision:** The dbt project lives in `dbt/`, and its `profiles.yml` is committed alongside it.
+
+**Alternatives considered:** dbt project at the repository root; `profiles.yml` in `~/.dbt/`.
+
+**Reasoning:**
+- DuckDB needs no credentials, only a file path, so committing the profile exposes no secrets.
+- Anyone can clone the repository and run dbt with no setup. Docker and CI only need to point at one folder.
+- Keeps Python code (`src/`) and SQL transformations (`dbt/`) clearly separated.
+
+**Trade-offs:** dbt commands must be run from `dbt/` or with `--project-dir` / `--profiles-dir`.
+
+---
+
 ## 018 · Air quality staging: unpivot, DST handling and source precedence
 
 **Decision:** Unpivot the 24 hourly value/flag pairs into one row per station, pollutant and hour. Convert local time to UTC from the period start. Drop local hours that do not exist. When sources overlap, keep the valid row first, then historical over real-time.
@@ -206,7 +252,7 @@ This document records the key technical decisions made in this project, the alte
 - In October the repeated local hour appears only once in the source, so one UTC hour has no data. It is left as a gap, never imputed (decision 009).
 - Placeholder rows (`0` flagged `N`) must never hide a valid value from the other source, so validity ranks above source precedence.
 
-**Trade-offs:** The repeated October hour is assigned to one of its two possible UTC instants by the time zone library.
+**Trade-offs:** The repeated October hour is assigned by the time zone library to its later instant (standard time), leaving the gap on the earlier one. Verified on 2024-10-27 and pinned by a dbt unit test.
 
 ---
 
