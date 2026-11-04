@@ -73,3 +73,19 @@ unit_tests:
         - {measured_at_utc: "2024-01-15 09:00:00", validation_flag: "V", value: 25, source_partition: realtime/2024-01-15}
         - {measured_at_utc: "2024-01-15 10:00:00", validation_flag: "V", value: 30, source_partition: historical/2024}
         - {measured_at_utc: "2024-01-15 11:00:00", validation_flag: "N", value: null, source_partition: historical/2024}
+
+  - name: test_latest_realtime_download_wins
+    description: >
+      Each daily download of the accumulated real-time file covers the last 30 days, so the same
+      hour appears in several downloads. With equal validity, the most recent download wins: it
+      carries the latest corrections (decision 025).
+    model: stg_air_quality
+    given:
+      - input: ref('base_air_quality')
+        rows:
+          - {station_id: "004", pollutant_code: "08", measurement_date_local: "2026-10-15", hour_ending_local: 10, validation_flag: "V", value: 40, source_partition: realtime/2026-10-15, source_priority: 2}
+          - {station_id: "004", pollutant_code: "08", measurement_date_local: "2026-10-15", hour_ending_local: 10, validation_flag: "V", value: 42, source_partition: realtime/2026-10-20, source_priority: 2}
+          - {station_id: "004", pollutant_code: "08", measurement_date_local: "2026-10-15", hour_ending_local: 10, validation_flag: "V", value: 41, source_partition: realtime/2026-10-18, source_priority: 2}
+    expect:
+      rows:
+        - {measured_at_utc: "2026-10-15 08:00:00", value: 42, source_partition: realtime/2026-10-20}

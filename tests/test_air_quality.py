@@ -1,4 +1,4 @@
-"""Tests for air quality discovery and historical extraction (decisions 010, 011 and 012)."""
+"""Tests for air quality discovery and extraction (decisions 010, 011, 012 and 025)."""
 
 import io
 import zipfile
@@ -12,8 +12,11 @@ from madrid_air_quality_pipeline.extract.air_quality import (
     HistoricalResource,
     discover_historical_resources,
     extract_historical,
+    extract_realtime,
     save_zip_csvs,
     should_download,
+    validate_realtime_file,
+    with_page_size,
 )
 
 CSV_CONTENT = f"{EXPECTED_HEADER};H02\n28;079;004;08;28079004_8_8;2024;01;01;12;V;10\n".encode()
@@ -173,3 +176,56 @@ def test_extract_historical_is_idempotent(monkeypatch, tmp_path):
     assert len(fake_fetch.urls) == 2  # nothing downloaded again
     assert (tmp_path / "period=2024" / FINGERPRINT_FILE).exists()
     assert (tmp_path / "period=desde_2025" / "air_quality.csv").read_bytes() == CSV_CONTENT
+
+
+# --- Real-time (accumulated last 30 days) ---------------------------------------------
+
+def realtime_csv(stations: list[str], days: int = 2) -> bytes:
+    rows = [
+        f"28;079;{station};08;28079{station}_8_8;2026;10;{day:02d}" + ";10;V" * 24
+        for station in stations
+        for day in range(1, days + 1)
+    ]
+    return "\n".join([EXPECTED_HEADER, *rows]).encode()
+
+
+def test_with_page_size_replaces_existing_value():
+    url = "https://example.test/query/data.csv?pageSize=5000&format=csv"
+
+    assert with_page_size(url, 50000) == "https://example.test/query/data.csv?format=csv&pageSize=50000"
+
+
+def test_with_page_size_adds_missing_parameter():
+    assert with_page_size("https://example.test/data.csv", 10) == "https://example.test/data.csv?pageSize=10"
+
+
+def test_validate_realtime_file_accepts_complete_file():
+    validate_realtime_file(realtime_csv(["4", "8", "11"]), source="test", min_stations=3)
+
+
+def test_validate_realtime_file_rejects_possibly_truncated_file():
+    content = realtime_csv(["4", "8"], days=5)  # 10 rows
+
+    with pytest.raises(ValueError, match="truncated"):
+        validate_realtime_file(content, source="test", page_size=10, min_stations=1)
+
+
+def test_validate_realtime_file_rejects_missing_stations():
+    with pytest.raises(ValueError, match="2 stations, expected at least 3"):
+        validate_realtime_file(realtime_csv(["4", "8"]), source="test", min_stations=3)
+
+
+def test_extract_realtime_requests_a_large_page_and_writes_dated_partition(monkeypatch, tmp_path):
+    resource = ckan_resource("Tiempo real", "CSV", "https://example.test/rt.csv?pageSize=5000")
+    monkeypatch.setattr(air_quality, "get_package_resources", lambda _: [resource])
+    monkeypatch.setattr(air_quality, "REALTIME_DIR", tmp_path)
+    expected_url = f"https://example.test/rt.csv?pageSize={air_quality.REALTIME_PAGE_SIZE}"
+    content = realtime_csv([str(n) for n in range(1, 21)])  # 20 stations
+    fake_fetch = FakeFetch({expected_url: content})
+    monkeypatch.setattr(air_quality, "fetch", fake_fetch)
+
+    destination = extract_realtime()
+
+    assert fake_fetch.urls == [expected_url]
+    assert destination.parent.name.startswith("date=")
+    assert destination.read_bytes() == content

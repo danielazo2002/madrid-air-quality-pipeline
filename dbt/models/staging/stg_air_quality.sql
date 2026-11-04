@@ -33,10 +33,11 @@ deduplicated as (
     select *
     from with_utc
     where is_existing_local_time
-    -- One row per station, pollutant and hour: valid rows first, then historical over realtime.
+    -- One row per station, pollutant and hour: valid rows first, then historical over realtime,
+    -- then the most recent real-time download (partitions sort as 'realtime/YYYY-MM-DD').
     qualify row_number() over (
         partition by station_id, pollutant_code, period_start_utc
-        order by (validation_flag = 'V') desc, source_priority
+        order by (validation_flag = 'V') desc, source_priority, source_partition desc
     ) = 1
 
 )

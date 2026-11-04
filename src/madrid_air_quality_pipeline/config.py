@@ -24,7 +24,9 @@ START_YEAR = int(os.environ.get("START_YEAR", "2024"))
 # CKAN metadata API, used to discover download URLs (decision: discovery over hardcoding)
 CKAN_PACKAGE_SHOW_URL = "https://datos.madrid.es/api/3/action/package_show"
 AIR_QUALITY_HISTORICAL_PACKAGE = "201200-0-calidad-aire-horario"
-AIR_QUALITY_REALTIME_PACKAGE = "212531-0-calidad-aire-tiempo-real"
+# Real-time data accumulated over the last 30 days (decision 025). A daily download covers
+# any gap since the last monthly update of the historical file, even after missed runs.
+AIR_QUALITY_REALTIME_PACKAGE = "300755-0-calidad-aire-tiempo-real-acumula"
 
 # Timezone in which the source publishes its data
 SOURCE_TIMEZONE = "Europe/Madrid"

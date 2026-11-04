@@ -19,3 +19,7 @@ dbt/dbt_packages/
 
 .pytest_cache/
 dbt/.user.yml
+
+# Airflow
+airflow/logs/
+.env

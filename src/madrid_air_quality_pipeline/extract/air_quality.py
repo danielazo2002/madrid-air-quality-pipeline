@@ -4,6 +4,7 @@ import io
 import logging
 import re
 import zipfile
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -18,7 +19,6 @@ from madrid_air_quality_pipeline.config import (
     START_YEAR,
 )
 from madrid_air_quality_pipeline.downloader import (
-    download_file,
     fetch,
     validate_header,
     write_atomic,
@@ -30,6 +30,12 @@ EXPECTED_HEADER = "PROVINCIA;MUNICIPIO;ESTACION;MAGNITUD;PUNTO_MUESTREO;ANO;MES;
 PERIOD_PATTERN = re.compile(r"^(?:Desde )?(\d{4})$")
 MONTHS_PER_YEAR = 12
 FINGERPRINT_FILE = "_fingerprint.txt"
+
+# The real-time file is served by a paginated API. One page must hold the whole file:
+# ~3,900 rows observed for 30 days, so 50,000 leaves a wide margin.
+REALTIME_PAGE_SIZE = 50_000
+# 23 of the 24 catalogue stations were reporting when this was written.
+MIN_REALTIME_STATIONS = 20
 
 HISTORICAL_DIR = RAW_DIR / "air_quality" / "historical"
 REALTIME_DIR = RAW_DIR / "air_quality" / "realtime"
@@ -154,17 +160,54 @@ def extract_historical(start_year: int = START_YEAR) -> list[Path]:
 
 # --- Real-time extraction --------------------------------------------------------
 
+def with_page_size(url: str, page_size: int) -> str:
+    """Return the URL with its pageSize query parameter set (replacing any existing value)."""
+    parts = urlsplit(url)
+    query = [(key, value) for key, value in parse_qsl(parts.query) if key != "pageSize"]
+    query.append(("pageSize", str(page_size)))
+    return urlunsplit(parts._replace(query=urlencode(query)))
+
+
+def validate_realtime_file(
+    content: bytes,
+    source: str,
+    page_size: int = REALTIME_PAGE_SIZE,
+    min_stations: int = MIN_REALTIME_STATIONS,
+) -> None:
+    """Fail loudly if the paginated API may have truncated the file or stations are missing."""
+    lines = content.decode("utf-8-sig", errors="replace").splitlines()
+    rows = [line for line in lines[1:] if line.strip()]
+
+    if len(rows) >= page_size:
+        raise ValueError(
+            f"{source} returned {len(rows)} rows, the full page size: the file may be truncated"
+        )
+
+    stations = {row.split(";")[2].strip('"') for row in rows}
+    if len(stations) < min_stations:
+        raise ValueError(
+            f"{source} contains {len(stations)} stations, expected at least {min_stations}"
+        )
+
+
 def extract_realtime() -> Path:
-    """Download today's real-time file, partitioned by the date in Madrid."""
+    """Download the last 30 days of real-time data, partitioned by download date (Madrid)."""
     csv_resources = [
         r for r in get_package_resources(AIR_QUALITY_REALTIME_PACKAGE) if r.get("format") == "CSV"
     ]
     if len(csv_resources) != 1:
         raise RuntimeError(f"Expected 1 real-time CSV resource, found {len(csv_resources)}")
 
+    url = with_page_size(csv_resources[0]["url"], REALTIME_PAGE_SIZE)
+    content = fetch(url).content
+    validate_header(content, EXPECTED_HEADER, source=url)
+    validate_realtime_file(content, source=url)
+
     today_in_madrid = datetime.now(ZoneInfo(SOURCE_TIMEZONE)).date()
     destination = REALTIME_DIR / f"date={today_in_madrid.isoformat()}" / "air_quality.csv"
-    return download_file(csv_resources[0]["url"], destination, expected_header=EXPECTED_HEADER)
+    write_atomic(destination, content)
+    logger.info("Downloaded %s (%d bytes)", destination, len(content))
+    return destination
 
 
 if __name__ == "__main__":

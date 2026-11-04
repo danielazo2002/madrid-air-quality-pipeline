@@ -1,0 +1,12 @@
+# Keep the build context small and free of local state
+.git
+.venv
+.pytest_cache
+**/__pycache__
+data
+airflow/logs
+dbt/target
+dbt/logs
+dbt/dbt_packages
+dbt/.user.yml
+.env

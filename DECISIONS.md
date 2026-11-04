@@ -220,6 +220,40 @@ This document records the key technical decisions made in this project, the alte
 
 ---
 
+---
+
+## 020 · Fact table grain: station × pollutant × hour (long format)
+
+**Decision:** `fct_air_quality_weather` has one row per station, pollutant and hour, with the weather of that station and hour as columns.
+
+**Alternatives considered:** One row per station and hour with one column per pollutant (wide format).
+
+**Reasoning:**
+- New pollutants need no schema change; each row carries its own unit.
+- Filtering by pollutant is natural for dashboards. Wide views for correlation analysis can be derived with `PIVOT`.
+
+**Trade-offs:** Weather values are repeated for every pollutant measured at the same station and hour.
+
+---
+
+## 021 · Weather joined with a left join
+
+**Decision:** Air quality is the driving table; weather is attached with a left join on station and UTC hour.
+
+**Reasoning:** Recent hours have air quality data but no weather yet (decision 013). They are kept with NULL weather instead of being dropped.
+
+**Trade-offs:** Consumers must handle NULL weather columns for the most recent hours.
+
+---
+
+## 022 · Pollutant catalogue as a dbt seed
+
+**Decision:** Pollutant codes, symbols, names and units live in `seeds/pollutants.csv`, built from the official file documentation.
+
+**Reasoning:** Small, static reference data with no API. Versioned with the code and tested: every code in the data must exist in the catalogue.
+
+**Trade-offs:** Must be updated by hand if the city council adds new pollutants (the relationship test will fail when that happens).
+
 ## 023 · Python tests: pytest with monkeypatch, no network
 
 **Decision:** Test the extraction code with pytest. HTTP is replaced with pytest's `monkeypatch`; tests never reach the network or the real `data/` directory.
@@ -246,3 +280,66 @@ This document records the key technical decisions made in this project, the alte
 - The autumn DST test pins the time zone library behaviour verified on real data, acting as a regression test.
 
 **Trade-offs:** One more model in the DAG.
+
+---
+
+## 025 · Recent air quality from the accumulated real-time dataset
+
+**Decision:** Download the real-time dataset that accumulates the last 30 days instead of the current-day file. Each download is stored untouched under `realtime/date=<download date>/`. When downloads overlap, the most recent one wins (after validity and historical precedence).
+
+**Alternatives considered:** Keep the current-day file and run the extraction every hour.
+
+**Reasoning:**
+- The historical file is updated monthly; the current-day file only covers today. Any day without a late download was lost for good (verified: 30 of 31 October days were missing).
+- With 30 days per download, a daily run heals any gap shorter than a month, including missed runs.
+- The file comes from a paginated API: the extraction requests a 50,000-row page and fails if the response fills the page (possible truncation) or contains fewer than 20 stations (23 observed).
+
+**Trade-offs:** Overlapping downloads take more disk space (~0.5 MB each) and need an extra tie-break rule.
+
+---
+
+## 026 · Airflow deployment: reduced Docker Compose with LocalExecutor
+
+**Decision:** Run Airflow 3 with a custom Docker Compose file: Postgres, scheduler, DAG processor, API server and an init job, using LocalExecutor and a custom image.
+
+**Alternatives considered:** The official Docker Compose file (CeleryExecutor, Redis, worker, triggerer).
+
+**Reasoning:**
+- Celery distributes tasks across machines; on a single machine it only adds Redis and a worker.
+- About half the memory of the official setup, which matters on a 7.6 GB WSL machine.
+- The triggerer only serves deferrable tasks, which this project does not use.
+
+**Trade-offs:** Departs from the official file, so upgrades must be checked by hand.
+
+---
+
+## 027 · dbt in Airflow: Cosmos, isolated virtual environment, one model at a time
+
+**Decision:** Render the dbt project with Astronomer Cosmos (one Airflow task per model and test). dbt lives in its own virtual environment inside the image. dbt tasks run one at a time.
+
+**Alternatives considered:** A single `BashOperator` running `dbt build`.
+
+**Reasoning:**
+- Per-model tasks show the dbt graph in Airflow and allow retrying only the failed model.
+- dbt and Airflow have large, conflicting dependency trees; a separate virtual environment avoids conflicts. dbt moved to a `transform` dependency group, so installing the pipeline package in Airflow does not pull dbt in.
+- DuckDB allows a single writer process. Running dbt tasks one at a time avoids lock errors.
+- Cosmos is configured with `InvocationMode.SUBPROCESS` for both parsing (`dbt ls`) and execution. In Cosmos 1.16, `RenderConfig.invocation_mode` defaults to `DBT_RUNNER`, which imports dbt as a library inside Airflow's environment.
+- The dbt project lives in `/opt/pipeline/dbt`, outside `/opt/airflow`: a folder named `dbt` in the working directory is importable as a namespace package and can shadow the real dbt.
+- dbt unit tests are excluded from the DAG: they test code, not data, and run in CI.
+
+**Trade-offs:** Sequential dbt tasks are slower than a parallel warehouse would allow; this is a DuckDB limit (decision 001), not an Airflow one.
+
+---
+
+## 028 · One daily DAG
+
+**Decision:** A single DAG runs daily at 06:00 Madrid time: the four extractions (weather after stations, the rest in parallel), then the dbt project through Cosmos.
+
+**Alternatives considered:** Separate hourly and daily DAGs connected through Airflow Assets; a `dbt source freshness` step.
+
+**Reasoning:**
+- Weather is only available up to yesterday (decision 013), so hourly runs would not improve the analysis.
+- With the 30-day accumulated file (decision 025), a missed day is recovered on the next run.
+- Source freshness detects stale data delivered by external loaders. Here the extraction is part of the same DAG: a failed download fails its task, and a successful one always writes the current date's partition, so a freshness check would add a step without detecting anything new.
+
+**Trade-offs:** Air quality in the warehouse is up to one day old.
