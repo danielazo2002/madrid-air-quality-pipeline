@@ -11,6 +11,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 # This will matter later, when the code runs inside Airflow's Docker containers.
 DATA_DIR = Path(os.environ.get("DATA_DIR", PROJECT_ROOT / "data"))
 RAW_DIR = DATA_DIR / "raw"
+# DuckDB file written by dbt (same path as dbt/profiles.yml) and read by the dashboard.
+WAREHOUSE_PATH = DATA_DIR / "warehouse" / "madrid_air_quality.duckdb"
 
 STATIONS_URL = (
     "https://datos.madrid.es/dataset/212629-0-estaciones-control-aire/"

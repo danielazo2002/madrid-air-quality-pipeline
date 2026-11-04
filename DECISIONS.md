@@ -427,3 +427,50 @@ This document records the key technical decisions made in this project, the alte
 - The fixtures reproduce every quirk found so far: BOM and CRLF, decimal commas, quoted values, both DST days (including the `0 N` placeholder for the non-existent hour), overlapping real-time downloads and Hive-style partitions.
 
 **Trade-offs:** Fixtures must be updated by hand if the source formats change.
+
+---
+
+## 032 · Public dashboard with Quarto
+
+**Decision:** Build the public dashboard as a Quarto dashboard (Python, Plotly and folium, rendered to a static site) and host it on GitHub Pages.
+
+**Alternatives considered:** Evidence (first choice), Streamlit on Streamlit Community Cloud.
+
+**Reasoning:**
+- A static site needs no server: always available, free, no cold starts. Streamlit Community Cloud puts apps to sleep after 12 hours without traffic, so a recruiter opening the link would first see a wake-up screen.
+- Evidence was chosen first, but in August 2026 it replaced its static-site framework with Evidence Core, whose self-hosting option is a server (`evidence serve`) running live queries. The previous static version is deprecated.
+- Quarto is a mature open-source publishing system (Posit). Dashboards are written in Python, the language of the rest of the project, with no Node.js toolchain. Plotly charts stay interactive without a server.
+- The station map uses folium (Leaflet) with OpenStreetMap tiles: CARTO basemaps now require an API key, which left Plotly's map blank.
+
+**Trade-offs:** Interactivity is per chart (zoom, hover, legend toggles); filters that update several charts at once would need a server. Plotly's notebook output loads MathJax once per chart, which logs a harmless error in the browser console.
+
+---
+
+## 033 · Dashboard data refreshed by a scheduled GitHub Actions workflow
+
+**Decision:** A weekly (and manually triggerable) workflow runs the extraction and dbt on a GitHub runner, renders the Quarto dashboard and deploys it to GitHub Pages. `data/raw` is kept in the Actions cache between runs.
+
+**Alternatives considered:** Exporting aggregated data by hand and committing it.
+
+**Reasoning:**
+- The Airflow deployment runs on a local machine, which a public website cannot reach.
+- The same extraction and dbt code runs in both places; only the scheduler differs.
+- Idempotent extraction (decision 012) makes cached runs cheap: closed years are never downloaded again.
+- dbt data tests run before rendering: if they fail, nothing is published.
+- No generated data in git history, and the dashboard never goes stale.
+
+**Trade-offs:** Two schedulers in the project (Airflow for the local deployment, GitHub Actions for the public demo). The cache expires after 7 days without use, which would trigger a full download.
+
+---
+
+## 034 · Dashboard content and aggregated models
+
+**Decision:** The dashboard covers four pollutants with health-based limits (NO₂, O₃, PM10, PM2.5) in five pages: overview with a station map, weather vs pollution, daily and seasonal cycles, data quality, and about. It reads small aggregated dbt models, not the hourly fact table.
+
+**Reasoning:**
+- Pre-aggregation keeps the rendering fast and the published page small, instead of loading 3 million rows.
+- Weather bins are computed on hourly data, where the physical relationship happens; daily means would blur it.
+- A data quality page shows valid-hour coverage and validation flags per station, which most portfolio dashboards leave out.
+
+**Trade-offs:** New questions need new aggregated models rather than ad hoc queries on the full dataset.
+

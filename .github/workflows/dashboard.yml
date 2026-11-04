@@ -1,0 +1,80 @@
+# Public dashboard (decision 033): runs the full pipeline on a GitHub runner every week,
+# renders the Quarto dashboard and publishes it to GitHub Pages.
+name: Dashboard
+
+on:
+  schedule:
+    - cron: "17 5 * * 1"   # Mondays at 05:17 UTC (off the hour: scheduled runs at :00 queue longer)
+  workflow_dispatch:         # "Run workflow" button in the Actions tab
+  push:
+    branches: [main]
+    paths:
+      - "dashboard/**"
+      - "dbt/models/marts/dashboard/**"
+      - ".github/workflows/dashboard.yml"
+
+permissions:
+  contents: read
+
+# Never run two deployments at the same time, and never cancel one halfway through.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Run the pipeline and render the dashboard
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v8.1.0
+        with:
+          enable-cache: true
+      - name: Install project
+        run: uv sync --locked
+
+      # Raw files from previous runs. The extraction is idempotent (decision 012), so with
+      # the cache in place only the open periods are downloaded again.
+      - name: Cache raw data
+        uses: actions/cache@v5
+        with:
+          path: data/raw
+          key: raw-data-${{ github.run_id }}
+          restore-keys: raw-data-
+
+      - name: Extract
+        run: |
+          uv run --no-sync python -m madrid_air_quality_pipeline.extract.stations
+          uv run --no-sync python -m madrid_air_quality_pipeline.extract.air_quality
+          uv run --no-sync python -m madrid_air_quality_pipeline.extract.weather
+
+      # Data tests run here too: if they fail, nothing is published.
+      - name: Transform and test
+        working-directory: dbt
+        run: |
+          mkdir -p ../data/warehouse
+          uv run --no-sync dbt deps
+          uv run --no-sync dbt build
+
+      - name: Render the dashboard
+        run: uv run --no-sync quarto render dashboard
+
+      - uses: actions/configure-pages@v6
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: dashboard/_site
+
+  deploy:
+    name: Publish to GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5

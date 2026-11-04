@@ -25,3 +25,7 @@ airflow/logs/
 .env
 # DuckDB file created when dbt runs on the CI fixture data
 tests/fixtures/data/warehouse/
+
+# Quarto dashboard (rendered site and cache)
+dashboard/_site/
+dashboard/.quarto/

@@ -1,0 +1,50 @@
+models:
+  - name: agg_daily_station_pollutant
+    description: Daily mean concentration per station and pollutant, with daily weather. Feeds the public dashboard.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [station_id, pollutant_symbol, date_local]
+    columns:
+      - name: date_local
+        description: Madrid local date of the measurement hours.
+        data_tests: [not_null]
+
+  - name: agg_station_summary
+    description: One row per station and pollutant, with location, overall mean and data quality.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [station_id, pollutant_symbol]
+    columns:
+      - name: latitude
+        data_tests: [not_null]
+      - name: valid_share
+        description: Share of hours with a valid (V) measurement.
+        data_tests: [not_null]
+
+  - name: agg_hourly_profile
+    description: Mean concentration by local hour of day, weekdays vs weekends.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [pollutant_symbol, day_type, hour_local]
+    columns:
+      - name: day_type
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ["weekday", "weekend"]
+
+  - name: agg_weather_bins
+    description: Mean concentration by weather bin, computed on hourly data.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [pollutant_symbol, weather_variable, bin_lower]
+    columns:
+      - name: weather_variable
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [wind_speed_kmh, boundary_layer_height_m, temperature_c, shortwave_radiation_wm2, precipitation_mm]

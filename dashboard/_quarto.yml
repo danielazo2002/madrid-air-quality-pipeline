@@ -1,0 +1,4 @@
+project:
+  type: default
+  # Rendered site, ignored by git and published to GitHub Pages by CI (decision 033).
+  output-dir: _site

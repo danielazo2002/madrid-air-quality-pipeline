@@ -8,6 +8,8 @@
 
 **How does weather affect air pollution in Madrid?**
 
+**[→ Live dashboard](https://danielazo2002.github.io/madrid-air-quality-pipeline/)** · rebuilt every week from the public data sources
+
 An end-to-end ELT pipeline that collects hourly air quality measurements from Madrid's 24 monitoring stations and hourly weather for the same locations, models them with dbt into an analysis-ready table, and runs every day on Airflow.
 
 - **~3 million hourly measurements** since January 2024, refreshed daily
@@ -15,7 +17,8 @@ An end-to-end ELT pipeline that collects hourly air quality measurements from Ma
 - **Transform** with dbt on DuckDB: unpivoting, time zone and daylight saving time handling, source precedence
 - **Orchestrate** with Airflow 3 in Docker, one Airflow task per dbt model (Astronomer Cosmos)
 - **Test** at every layer: 47 Python tests, 20 dbt data tests, 5 dbt unit tests, all in CI
-- **31 documented design decisions**, with the alternatives considered: [DECISIONS.md](DECISIONS.md)
+- **Publish** a public dashboard, rebuilt weekly by GitHub Actions and hosted on GitHub Pages
+- **34 documented design decisions**, with the alternatives considered: [DECISIONS.md](DECISIONS.md)
 
 ## Architecture
 
@@ -79,17 +82,16 @@ The interesting parts of this project are the problems the data did not announce
 | The data portal **reorganised its resources** during development | Download URLs are discovered at runtime from CKAN metadata, and missing years fail loudly |
 | **DuckDB allows a single writer**, while Cosmos runs one process per dbt model | dbt tasks share an Airflow pool with one slot |
 
-## First results
+## Findings
 
-Correlation of hourly NO₂ concentration with weather, all stations, January 2024 to October 2026:
+From the [live dashboard](https://danielazo2002.github.io/madrid-air-quality-pipeline/), hourly data since January 2024:
 
-| Weather variable | Correlation with NO₂ |
-|---|---|
-| Wind speed | −0.38 |
-| Boundary layer height | −0.37 |
-| Temperature | −0.26 |
+- **Traffic drives NO₂.** On weekdays NO₂ peaks at 8:00 and 21:00 (rush hours); the morning peak almost disappears at weekends.
+- **Weather disperses it.** NO₂ falls steadily as wind speed and boundary layer height increase.
+- **Ozone behaves the opposite way.** O₃ is formed by sunlight: it peaks around 15:00, in July, and rises with solar radiation and temperature, while NO₂ peaks in winter.
+- **Rain has a smaller effect than expected** on hourly particle levels (PM10, PM2.5).
 
-More wind and a deeper mixing layer disperse pollution, as expected physically. These are simple correlations: temperature and boundary layer height also follow the time of day and the season, so a proper analysis needs to control for both.
+These are associations, not causal estimates: wind, temperature and the mixing layer also follow the time of day and the season.
 
 ## Tech stack
 
@@ -101,6 +103,7 @@ More wind and a deeper mixing layer disperse pollution, as expected physically. 
 | Orchestration | [Apache Airflow](https://airflow.apache.org/) 3.3 + [Cosmos](https://github.com/astronomer/astronomer-cosmos) | Industry standard; Cosmos shows each dbt model as an Airflow task |
 | Containers | Docker Compose | Reduced setup with LocalExecutor (5 containers instead of 8) |
 | Quality | pytest, dbt tests, [ruff](https://docs.astral.sh/ruff/), GitHub Actions | Every layer tested on every push |
+| Dashboard | [Quarto](https://quarto.org/dashboards/), Plotly, folium, GitHub Pages | Static site in Python: free, always available, rebuilt weekly |
 
 ## Running it
 
@@ -146,6 +149,14 @@ docker compose up -d
 
 Open http://localhost:8080 (user `airflow`, password `airflow`), unpause the `madrid_air_quality` DAG and trigger it. Data is shared with local development through `data/`.
 
+### Dashboard
+
+```bash
+cd dbt && uv run dbt build --select +marts.dashboard && cd ..
+uv run quarto render dashboard
+uv run python -m http.server 8000 --directory dashboard/_site   # http://localhost:8000
+```
+
 ### Tests
 
 ```bash
@@ -168,13 +179,14 @@ uv run dbt build
 │   └── extract/                # Stations, air quality (CKAN discovery), weather
 ├── dbt/
 │   ├── models/staging/         # base + stg models, sources, data and unit tests
-│   ├── models/marts/           # fct_air_quality_weather
+│   ├── models/marts/           # fct_air_quality_weather + aggregated dashboard models
 │   └── seeds/pollutants.csv    # Pollutant codes, names and units
 ├── airflow/dags/               # Daily DAG
+├── dashboard/                  # Quarto dashboard (published to GitHub Pages)
 ├── tests/                      # pytest suite and fixture dataset for CI
 ├── Dockerfile                  # Airflow image with dbt in an isolated virtualenv
 ├── docker-compose.yaml         # Postgres, scheduler, DAG processor, API server
-└── DECISIONS.md                # 31 design decisions and their trade-offs
+└── DECISIONS.md                # 34 design decisions and their trade-offs
 ```
 
 ## Data sources
@@ -187,7 +199,7 @@ uv run dbt build
 - **Single machine.** DuckDB and LocalExecutor keep the project cheap and reproducible. Moving to a cloud warehouse (BigQuery, Snowflake) would mainly change the dbt profile and the Cosmos concurrency setting.
 - **Weather is modelled data** for a grid cell, not measured at the station. Recent days may still be revised.
 - **Air quality is up to one day old**, matching the daily schedule.
-- **Next:** a public dashboard on top of the fact table, and analysis controlling for season and time of day.
+- **Next:** an analysis that controls for season and time of day (for example, a regression of NO₂ on weather with hour and month effects).
 
 ## License
 

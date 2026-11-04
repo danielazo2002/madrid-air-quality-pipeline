@@ -1,0 +1,286 @@
+---
+title: "Madrid · Air quality and weather"
+format:
+  dashboard:
+    # No math formulas in this dashboard: do not load MathJax.
+    html-math-method: plain
+    nav-buttons:
+      - icon: github
+        href: https://github.com/danielazo2002/madrid-air-quality-pipeline
+        aria-label: Source code on GitHub
+---
+
+```{python}
+#| include: false
+# Data: small aggregated dbt models (decision 034), read-only from the DuckDB warehouse.
+import duckdb
+import folium
+import pandas as pd
+import plotly.express as px
+from branca.colormap import linear
+
+from madrid_air_quality_pipeline.config import WAREHOUSE_PATH
+
+with duckdb.connect(str(WAREHOUSE_PATH), read_only=True) as con:
+    daily = con.execute("select * from agg_daily_station_pollutant").df()
+    stations = con.execute("select * from agg_station_summary").df()
+    profile = con.execute("select * from agg_hourly_profile").df()
+    bins = con.execute("select * from agg_weather_bins").df()
+
+# DuckDB DATE columns may arrive as Python dates; make them pandas datetimes.
+daily["date_local"] = pd.to_datetime(daily["date_local"])
+profile["day_type"] = profile["day_type"].map({"weekday": "Monday–Friday", "weekend": "Weekend"})
+
+POLLUTANT_ORDER = {"pollutant_symbol": ["NO2", "O3", "PM10", "PM2.5"]}
+UNIT = "µg/m³"
+TEMPLATE = "plotly_white"
+
+
+def style(fig):
+    """Shared layout: horizontal legend above the plot, white template, tight margins.
+
+    Legend entries get a fixed width: Plotly measures legend text on screen, and inside
+    dashboard cards that measurement can come out near zero, making entries overlap.
+    """
+    return fig.update_layout(
+        template=TEMPLATE,
+        legend=dict(
+            orientation="h", yanchor="bottom", y=1.04, xanchor="left", x=0,
+            title_text="", entrywidth=110, entrywidthmode="pixels",
+        ),
+        margin=dict(l=10, r=10, t=60, b=10),
+    )
+
+
+def station_map(data):
+    """Leaflet map with one circle per station, coloured and sized by mean concentration.
+
+    Built inside a function so that only the finished map is displayed: Quarto shows the
+    result of every expression in a cell, including each marker added in a loop.
+    """
+    colormap = linear.OrRd_09.scale(data["avg_value"].min(), data["avg_value"].max())
+    colormap.caption = f"Mean NO₂ ({UNIT})"
+    fmap = folium.Map(location=[40.42, -3.70], zoom_start=11, tiles="OpenStreetMap")
+    for station in data.itertuples():
+        folium.CircleMarker(
+            location=[station.latitude, station.longitude],
+            radius=6 + station.avg_value / 4,
+            color=colormap(station.avg_value),
+            fill=True,
+            fill_opacity=0.85,
+            tooltip=f"{station.station_name}: {station.avg_value:.1f} {UNIT}",
+        ).add_to(fmap)
+    colormap.add_to(fmap)
+    return fmap
+
+
+def weather_chart(variable: str, x_title: str):
+    """Mean concentration by bin of one weather variable, one line per pollutant."""
+    data = bins[bins["weather_variable"] == variable].sort_values("bin_lower")
+    fig = px.line(
+        data,
+        x="bin_lower",
+        y="avg_value",
+        color="pollutant_symbol",
+        markers=True,
+        category_orders=POLLUTANT_ORDER,
+        hover_data={"valid_hours": ":,"},
+        labels={"bin_lower": x_title, "avg_value": f"Mean concentration ({UNIT})",
+                "pollutant_symbol": "Pollutant", "valid_hours": "Hours"},
+    )
+    return style(fig)
+```
+
+# Overview
+
+## Row {height=25%}
+
+```{python}
+#| content: valuebox
+#| title: "Monitoring stations"
+dict(icon="geo-alt", color="primary", value=stations["station_id"].nunique())
+```
+
+```{python}
+#| content: valuebox
+#| title: "Validated hourly measurements"
+dict(icon="clock-history", color="info", value=f"{daily['valid_hours'].sum() / 1e6:.2f} M")
+```
+
+```{python}
+#| content: valuebox
+#| title: "Data up to"
+dict(icon="calendar-check", color="secondary", value=daily["date_local"].max().strftime("%Y-%m-%d"))
+```
+
+## Row {height=82%}
+
+```{python}
+#| title: "Mean NO₂ by station"
+station_map(stations[stations["pollutant_symbol"] == "NO2"])
+```
+
+```{python}
+#| title: "Monthly mean concentration, all stations"
+monthly = (
+    daily.assign(month=daily["date_local"].dt.to_period("M").dt.to_timestamp())
+    .groupby(["month", "pollutant_symbol"], as_index=False)["avg_value"]
+    .mean()
+)
+style(px.line(
+    monthly,
+    x="month",
+    y="avg_value",
+    color="pollutant_symbol",
+    category_orders=POLLUTANT_ORDER,
+    labels={"month": "", "avg_value": f"Mean ({UNIT})", "pollutant_symbol": "Pollutant"},
+))
+```
+
+# Weather
+
+## Row
+
+```{python}
+#| title: "Wind disperses pollution"
+weather_chart("wind_speed_kmh", "Wind speed (km/h)")
+```
+
+```{python}
+#| title: "A deeper mixing layer dilutes it"
+weather_chart("boundary_layer_height_m", "Boundary layer height (m)")
+```
+
+## Row
+
+```{python}
+#| title: "Sun and heat form ozone"
+weather_chart("shortwave_radiation_wm2", "Solar radiation (W/m²)")
+```
+
+```{python}
+#| title: "Temperature"
+weather_chart("temperature_c", "Temperature (°C)")
+```
+
+```{python}
+#| title: "Rain washes out particles"
+rain = bins[bins["weather_variable"] == "precipitation_mm"].copy()
+rain["bin"] = rain["bin_lower"].map({0.0: "Dry", 0.1: "< 1 mm", 1.0: "1–5 mm", 5.0: "≥ 5 mm"})
+style(px.bar(
+    rain.sort_values("bin_lower"),
+    x="bin",
+    y="avg_value",
+    color="pollutant_symbol",
+    barmode="group",
+    category_orders=POLLUTANT_ORDER,
+    labels={"bin": "Hourly precipitation", "avg_value": f"Mean ({UNIT})",
+            "pollutant_symbol": "Pollutant"},
+))
+```
+
+# Cycles
+
+## Row
+
+```{python}
+#| title: "NO₂ by hour of day: the traffic signature"
+style(px.line(
+    profile[profile["pollutant_symbol"] == "NO2"].sort_values("hour_local"),
+    x="hour_local",
+    y="avg_value",
+    color="day_type",
+    markers=True,
+    labels={"hour_local": "Hour of day (Madrid time)", "avg_value": f"Mean NO₂ ({UNIT})",
+            "day_type": ""},
+))
+```
+
+```{python}
+#| title: "O₃ by hour of day: peaks in the afternoon sun"
+style(px.line(
+    profile[profile["pollutant_symbol"] == "O3"].sort_values("hour_local"),
+    x="hour_local",
+    y="avg_value",
+    color="day_type",
+    markers=True,
+    labels={"hour_local": "Hour of day (Madrid time)", "avg_value": f"Mean O₃ ({UNIT})",
+            "day_type": ""},
+))
+```
+
+## Row
+
+```{python}
+#| title: "Seasonality: mean by month of the year"
+seasonal = (
+    daily.assign(month=daily["date_local"].dt.month)
+    .groupby(["month", "pollutant_symbol"], as_index=False)["avg_value"]
+    .mean()
+)
+style(px.line(
+    seasonal,
+    x="month",
+    y="avg_value",
+    color="pollutant_symbol",
+    markers=True,
+    category_orders=POLLUTANT_ORDER,
+    labels={"month": "Month", "avg_value": f"Mean ({UNIT})", "pollutant_symbol": "Pollutant"},
+).update_xaxes(dtick=1))
+```
+
+# Data quality
+
+## Row
+
+```{python}
+#| title: "Share of hours with a valid measurement"
+coverage = stations.pivot_table(
+    index="station_name", columns="pollutant_symbol", values="valid_share"
+).reindex(columns=POLLUTANT_ORDER["pollutant_symbol"])
+fig = px.imshow(
+    coverage,
+    color_continuous_scale="Greens",
+    zmin=0,
+    zmax=1,
+    text_auto=".0%",
+    aspect="auto",
+    labels={"x": "Pollutant", "y": "", "color": "Valid hours"},
+).update_layout(template=TEMPLATE, margin=dict(l=10, r=10, t=10, b=10)).update_yaxes(dtick=1)
+fig
+```
+
+```{python}
+#| title: "Coverage and validation flags by station"
+table = stations[[
+    "station_name", "pollutant_symbol", "first_date", "last_date",
+    "valid_hours", "flag_n_hours", "flag_other_hours", "valid_share",
+]].sort_values(["station_name", "pollutant_symbol"])
+for column in ["first_date", "last_date"]:
+    table[column] = pd.to_datetime(table[column]).dt.strftime("%Y-%m-%d")
+table.rename(columns={
+    "station_name": "Station", "pollutant_symbol": "Pollutant", "first_date": "From",
+    "last_date": "To", "valid_hours": "Valid hours", "flag_n_hours": "Flag N",
+    "flag_other_hours": "Other flags", "valid_share": "Valid %",
+}).style.hide(axis="index").format({"Valid %": "{:.1%}", "Valid hours": "{:,}"})
+```
+
+# About
+
+::: {.card title="About this dashboard"}
+**Question:** how does weather affect air pollution in Madrid?
+
+Hourly air quality from the 24 monitoring stations of Madrid City Council, joined with hourly
+weather from the Open-Meteo archive for each station. Built by an ELT pipeline in Python, dbt and
+DuckDB, orchestrated with Airflow; this page is regenerated every week by GitHub Actions.
+
+**Reading the charts.** Values are hourly means of validated measurements (flag `V`) in µg/m³.
+Weather charts group hours by weather conditions; they show associations, not causes: wind,
+temperature and the mixing layer also follow the time of day and the season.
+
+**Sources:** [datos.madrid.es](https://datos.madrid.es/) ·
+[Open-Meteo](https://open-meteo.com/en/docs/historical-weather-api)
+
+**Code, tests and the 34 design decisions:**
+[github.com/danielazo2002/madrid-air-quality-pipeline](https://github.com/danielazo2002/madrid-air-quality-pipeline)
+:::

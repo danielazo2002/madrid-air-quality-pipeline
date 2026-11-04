@@ -17,3 +17,6 @@ seeds:
     pollutants:
       +column_types:
         pollutant_code: varchar
+vars:
+  # Pollutants shown in the public dashboard (decision 034): the four with health-based limits.
+  dashboard_pollutants: ["NO2", "O3", "PM10", "PM2.5"]
