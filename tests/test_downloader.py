@@ -17,6 +17,7 @@ URL = "https://example.test/data.csv"
 
 # --- fetch: retry policy -----------------------------------------------------------
 
+
 def test_fetch_returns_response_on_success(fake_get, sleeps):
     fake = fake_get([make_response(200, b"ok")])
 
@@ -92,8 +93,9 @@ def test_fetch_always_sets_a_timeout(fake_get, sleeps):
 
 # --- validate_header ---------------------------------------------------------------
 
+
 def test_validate_header_accepts_bom_and_quotes():
-    content = '﻿"CODIGO";"CODIGO_CORTO";"ESTACION"\r\n1;2;3\r\n'.encode("utf-8")
+    content = '\ufeff"CODIGO";"CODIGO_CORTO";"ESTACION"\r\n1;2;3\r\n'.encode()
 
     validate_header(content, "CODIGO;CODIGO_CORTO", source="test")  # does not raise
 
@@ -111,6 +113,7 @@ def test_validate_header_rejects_empty_content():
 
 
 # --- write_atomic / download_file --------------------------------------------------
+
 
 def test_write_atomic_creates_parents_and_leaves_no_temporary_file(tmp_path):
     destination = tmp_path / "a" / "b" / "file.csv"

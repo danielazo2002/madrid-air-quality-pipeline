@@ -343,3 +343,41 @@ This document records the key technical decisions made in this project, the alte
 - Source freshness detects stale data delivered by external loaders. Here the extraction is part of the same DAG: a failed download fails its task, and a successful one always writes the current date's partition, so a freshness check would add a step without detecting anything new.
 
 **Trade-offs:** Air quality in the warehouse is up to one day old.
+
+---
+
+## 029 · Continuous integration with GitHub Actions
+
+**Decision:** Every push to `main` and every pull request runs four parallel jobs: lint (ruff), Python tests (pytest), dbt build on fixture data (models, data tests and unit tests), and a Docker image build that imports the DAG inside the image.
+
+**Reasoning:**
+- Each job maps to a class of failure seen during development: style and import errors, extraction logic, SQL and time zone logic, and image or DAG configuration (the Cosmos parsing issue in phase 5).
+- dbt unit tests run here rather than in the daily DAG: they test code, so they belong to code changes.
+- `uv sync --locked` fails if `uv.lock` is out of date, so CI tests the exact locked versions.
+- Least privilege: the workflow can only read the repository. Third-party actions are pinned to full versions.
+
+**Trade-offs:** The Docker job takes several minutes. The DAG import check runs without Airflow's metadata database, so it validates parsing, not scheduling.
+
+---
+
+## 030 · Ruff as linter and formatter
+
+**Decision:** Use ruff for linting (rules E, W, F, I, UP, B) and formatting, with a 100-character line length.
+
+**Alternatives considered:** flake8 + isort + black.
+
+**Reasoning:** One tool replaces three, runs in milliseconds and is the current standard for new Python projects. Line length is left to the formatter (E501 ignored), since long strings and URLs are not split.
+
+**Trade-offs:** None significant for a project of this size.
+
+---
+
+## 031 · Fixture dataset for dbt in CI
+
+**Decision:** Commit a small dataset (`tests/fixtures/data`, ~90 KB) that reproduces the real raw formats, and run the full dbt build on it in CI.
+
+**Reasoning:**
+- The real raw data is not in the repository (decision 011), but dbt needs files to read.
+- The fixtures reproduce every quirk found so far: BOM and CRLF, decimal commas, quoted values, both DST days (including the `0 N` placeholder for the non-existent hour), overlapping real-time downloads and Hive-style partitions.
+
+**Trade-offs:** Fixtures must be updated by hand if the source formats change.

@@ -4,10 +4,10 @@ import io
 import logging
 import re
 import zipfile
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from zoneinfo import ZoneInfo
 
 from madrid_air_quality_pipeline.config import (
@@ -45,14 +45,15 @@ REALTIME_DIR = RAW_DIR / "air_quality" / "realtime"
 class HistoricalResource:
     """A historical file published on the portal."""
 
-    period: str       # folder name: "2024" or "desde_2025"
+    period: str  # folder name: "2024" or "desde_2025"
     year: int
-    is_open: bool     # True for "Desde YYYY": still being updated every month
+    is_open: bool  # True for "Desde YYYY": still being updated every month
     url: str
     fingerprint: str  # changes whenever the source file changes
 
 
 # --- Discovery -----------------------------------------------------------------
+
 
 def get_package_resources(package_id: str) -> list[dict]:
     """Return the list of resources of a CKAN dataset."""
@@ -107,6 +108,7 @@ def discover_historical_resources(start_year: int = START_YEAR) -> list[Historic
 
 # --- Historical extraction -------------------------------------------------------
 
+
 def should_download(resource: HistoricalResource, target_dir: Path) -> bool:
     """Closed years are downloaded once; the open period only when its fingerprint changes."""
     marker = target_dir / FINGERPRINT_FILE
@@ -159,6 +161,7 @@ def extract_historical(start_year: int = START_YEAR) -> list[Path]:
 
 
 # --- Real-time extraction --------------------------------------------------------
+
 
 def with_page_size(url: str, page_size: int) -> str:
     """Return the URL with its pageSize query parameter set (replacing any existing value)."""

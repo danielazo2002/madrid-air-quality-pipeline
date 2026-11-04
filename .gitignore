@@ -10,7 +10,7 @@ wheels/
 .venv
 
 # Local data (raw files and DuckDB database)
-data/
+/data/
 
 # dbt
 dbt/target/
@@ -23,3 +23,5 @@ dbt/.user.yml
 # Airflow
 airflow/logs/
 .env
+# DuckDB file created when dbt runs on the CI fixture data
+tests/fixtures/data/warehouse/

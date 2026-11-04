@@ -49,6 +49,7 @@ PORTAL_RESOURCES = [
 
 # --- Discovery ------------------------------------------------------------------------
 
+
 def test_discovery_selects_closed_years_in_range_and_the_open_period(monkeypatch):
     monkeypatch.setattr(air_quality, "get_package_resources", lambda _: PORTAL_RESOURCES)
 
@@ -78,6 +79,7 @@ def test_discovery_fails_loudly_without_open_period(monkeypatch):
 
 # --- Incremental logic ----------------------------------------------------------------
 
+
 def make_resource(is_open: bool, fingerprint: str = "abc") -> HistoricalResource:
     return HistoricalResource(
         period="desde_2025" if is_open else "2024",
@@ -91,12 +93,12 @@ def make_resource(is_open: bool, fingerprint: str = "abc") -> HistoricalResource
 @pytest.mark.parametrize(
     ("is_open", "stored_fingerprint", "current_fingerprint", "expected"),
     [
-        (False, None, "abc", True),    # never downloaded
-        (True, None, "abc", True),     # never downloaded
+        (False, None, "abc", True),  # never downloaded
+        (True, None, "abc", True),  # never downloaded
         (False, "abc", "abc", False),  # closed year: downloaded once, never again
-        (True, "abc", "abc", False),   # open period unchanged
-        (True, "abc", "xyz", True),    # open period changed at the source
-        (True, "abc", "", True),       # no fingerprint available: always refresh
+        (True, "abc", "abc", False),  # open period unchanged
+        (True, "abc", "xyz", True),  # open period changed at the source
+        (True, "abc", "", True),  # no fingerprint available: always refresh
     ],
 )
 def test_should_download(tmp_path, is_open, stored_fingerprint, current_fingerprint, expected):
@@ -109,6 +111,7 @@ def test_should_download(tmp_path, is_open, stored_fingerprint, current_fingerpr
 
 
 # --- ZIP handling ---------------------------------------------------------------------
+
 
 def test_save_zip_csvs_keeps_only_csv_members(tmp_path):
     content = make_zip([*MONTHLY_CSVS, "ene_mo24.txt", "ene_mo24.xml"])
@@ -137,10 +140,13 @@ def test_save_zip_csvs_rejects_incomplete_year(tmp_path):
 
 def test_save_zip_csvs_rejects_unexpected_header(tmp_path):
     with pytest.raises(ValueError, match="Unexpected content"):
-        save_zip_csvs(make_zip(MONTHLY_CSVS, content=b"not;a;valid;file\n"), tmp_path, source="test.zip")
+        save_zip_csvs(
+            make_zip(MONTHLY_CSVS, content=b"not;a;valid;file\n"), tmp_path, source="test.zip"
+        )
 
 
 # --- End to end: idempotency ----------------------------------------------------------
+
 
 class FakeFetch:
     """Stand-in for downloader.fetch that serves canned bodies by URL and counts calls."""
@@ -162,10 +168,12 @@ def test_extract_historical_is_idempotent(monkeypatch, tmp_path):
     resources = [r for r in PORTAL_RESOURCES if r["hierarchy"][0]["hierarchy_name"] != "2023"]
     monkeypatch.setattr(air_quality, "get_package_resources", lambda _: resources)
     monkeypatch.setattr(air_quality, "HISTORICAL_DIR", tmp_path)
-    fake_fetch = FakeFetch({
-        "https://example.test/2024.zip": make_zip(MONTHLY_CSVS),
-        "https://example.test/desde_2025.csv": CSV_CONTENT,
-    })
+    fake_fetch = FakeFetch(
+        {
+            "https://example.test/2024.zip": make_zip(MONTHLY_CSVS),
+            "https://example.test/desde_2025.csv": CSV_CONTENT,
+        }
+    )
     monkeypatch.setattr(air_quality, "fetch", fake_fetch)
 
     first_run = extract_historical(start_year=2024)
@@ -180,6 +188,7 @@ def test_extract_historical_is_idempotent(monkeypatch, tmp_path):
 
 # --- Real-time (accumulated last 30 days) ---------------------------------------------
 
+
 def realtime_csv(stations: list[str], days: int = 2) -> bytes:
     rows = [
         f"28;079;{station};08;28079{station}_8_8;2026;10;{day:02d}" + ";10;V" * 24
@@ -192,11 +201,17 @@ def realtime_csv(stations: list[str], days: int = 2) -> bytes:
 def test_with_page_size_replaces_existing_value():
     url = "https://example.test/query/data.csv?pageSize=5000&format=csv"
 
-    assert with_page_size(url, 50000) == "https://example.test/query/data.csv?format=csv&pageSize=50000"
+    assert (
+        with_page_size(url, 50000)
+        == "https://example.test/query/data.csv?format=csv&pageSize=50000"
+    )
 
 
 def test_with_page_size_adds_missing_parameter():
-    assert with_page_size("https://example.test/data.csv", 10) == "https://example.test/data.csv?pageSize=10"
+    assert (
+        with_page_size("https://example.test/data.csv", 10)
+        == "https://example.test/data.csv?pageSize=10"
+    )
 
 
 def test_validate_realtime_file_accepts_complete_file():

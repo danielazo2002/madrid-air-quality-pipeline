@@ -1,0 +1,86 @@
+# Continuous integration (decision 029): runs on every push to main and every pull request.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# The workflow only reads the repository.
+permissions:
+  contents: read
+
+# A new push to the same branch cancels the run still in progress for the previous one.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Lint (ruff)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      # setup-uv publishes immutable full-version tags only (no @v8 shortcut).
+      - uses: astral-sh/setup-uv@v8.1.0
+        with:
+          enable-cache: true
+      - name: Install dev tools
+        run: uv sync --locked --only-group dev
+      - name: Lint
+        run: uv run --no-sync ruff check .
+      - name: Check formatting
+        run: uv run --no-sync ruff format --check .
+
+  python-tests:
+    name: Python tests (pytest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v8.1.0
+        with:
+          enable-cache: true
+      - name: Install project
+        run: uv sync --locked
+      - name: Run tests
+        run: uv run --no-sync pytest -v
+
+  dbt:
+    name: dbt build on fixture data
+    runs-on: ubuntu-latest
+    env:
+      # Small committed dataset with the real file formats (decision 031).
+      DATA_DIR: ${{ github.workspace }}/tests/fixtures/data
+    defaults:
+      run:
+        working-directory: dbt
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v8.1.0
+        with:
+          enable-cache: true
+      - name: Install project
+        run: uv sync --locked
+      - name: Create the warehouse folder
+        run: mkdir -p "$DATA_DIR/warehouse"
+      - name: Install dbt packages
+        run: uv run --no-sync dbt deps
+      - name: Build models, run data tests and unit tests
+        run: uv run --no-sync dbt build
+
+  docker:
+    name: Docker image and DAG import
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build the Airflow image
+        run: docker build --tag madrid-air-quality-airflow:ci .
+      - name: Import the DAG inside the image
+        # Fails if the DAG cannot be parsed: import errors, Cosmos configuration, dbt ls.
+        run: |
+          docker run --rm \
+            --volume "$PWD/airflow/dags:/opt/airflow/dags:ro" \
+            --env DATA_DIR=/tmp/data \
+            --env CONNECTION_CHECK_MAX_COUNT=0 \
+            madrid-air-quality-airflow:ci \
+            python /opt/airflow/dags/madrid_air_quality.py

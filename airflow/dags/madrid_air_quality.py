@@ -79,7 +79,11 @@ def madrid_air_quality():
     )
 
     weather_extracted = extract_stations() >> extract_weather()
-    [weather_extracted, extract_air_quality_historical(), extract_air_quality_realtime()] >> transform
+    [
+        weather_extracted,
+        extract_air_quality_historical(),
+        extract_air_quality_realtime(),
+    ] >> transform
 
 
 madrid_air_quality()

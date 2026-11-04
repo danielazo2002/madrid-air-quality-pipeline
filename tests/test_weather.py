@@ -11,14 +11,14 @@ from madrid_air_quality_pipeline.extract.weather import (
     validate_weather,
 )
 
-
 # --- read_stations --------------------------------------------------------------------
+
 
 def test_read_stations_handles_bom_and_semicolons(tmp_path):
     path = tmp_path / "stations.csv"
     path.write_bytes(
-        "﻿CODIGO;CODIGO_CORTO;ALTITUD;LONGITUD;LATITUD\r\n"
-        "28079004;4;637,0;-3.7122;40.4239\r\n".encode("utf-8")
+        "\ufeffCODIGO;CODIGO_CORTO;ALTITUD;LONGITUD;LATITUD\r\n"
+        "28079004;4;637,0;-3.7122;40.4239\r\n".encode()
     )
 
     [station] = read_stations(path)
@@ -42,6 +42,7 @@ def test_read_stations_fails_when_file_has_no_rows(tmp_path):
 
 
 # --- validate_weather -----------------------------------------------------------------
+
 
 def make_payload(hours: int = 3) -> dict:
     hourly = {"time": [f"2024-01-01T{h:02d}:00" for h in range(hours)]}
@@ -70,6 +71,7 @@ def test_validate_weather_rejects_arrays_of_different_length():
 
 
 # --- is_complete_year -----------------------------------------------------------------
+
 
 def write_times(path, times: list[str]) -> None:
     path.write_text(json.dumps({"hourly": {"time": times}}))

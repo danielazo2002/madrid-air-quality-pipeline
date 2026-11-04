@@ -13,7 +13,9 @@ RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
 RATE_LIMIT_WAIT_SECONDS = 60
 
 
-def fetch(url: str, params: dict | None = None, retries: int = 4, timeout: int = 60) -> requests.Response:
+def fetch(
+    url: str, params: dict | None = None, retries: int = 4, timeout: int = 60
+) -> requests.Response:
     """GET a URL, retrying only transient failures (rate limits, server and network errors)."""
     for attempt in range(1, retries + 1):
         try:
@@ -28,13 +30,19 @@ def fetch(url: str, params: dict | None = None, retries: int = 4, timeout: int =
 
             if status == 429:
                 retry_after = error.response.headers.get("Retry-After", "")
-                wait_seconds = int(retry_after) if retry_after.isdigit() else RATE_LIMIT_WAIT_SECONDS
+                wait_seconds = (
+                    int(retry_after) if retry_after.isdigit() else RATE_LIMIT_WAIT_SECONDS
+                )
             else:
                 wait_seconds = 2**attempt
 
             logger.warning(
                 "Attempt %d/%d failed for %s (status %s). Retrying in %ds",
-                attempt, retries, url, status, wait_seconds,
+                attempt,
+                retries,
+                url,
+                status,
+                wait_seconds,
             )
             time.sleep(wait_seconds)
     raise RuntimeError("Unreachable")
